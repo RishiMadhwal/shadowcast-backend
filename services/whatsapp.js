@@ -15,12 +15,12 @@ function initWhatsApp() {
           console.log('📡 Status:', statusSession);
         },
         {
-          headless: true, // ✅ Needed for server (Railway, VPS, etc)
+          headless: true, // ✅ Required for deployment
           devtools: false,
-          useChrome: true,
+          useChrome: false, // ✅ Force bundled Chromium (important)
           debug: false,
           logQR: true,
-          browserArgs: ['--no-sandbox', '--disable-setuid-sandbox'], // ✅ Safe for sandboxed containers
+          browserArgs: ['--no-sandbox', '--disable-setuid-sandbox'], // ✅ Safe for Railway
         }
       )
       .then((_client) => {
