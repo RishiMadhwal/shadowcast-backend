@@ -1,42 +1,63 @@
-const venom = require('venom-bot');
+const { default: makeWASocket, useSingleFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const fs = require('fs');
+const path = require('path');
+const qrcode = require('qrcode-terminal');
 
-let client = null;
+const authFolder = path.join(__dirname, '..', 'tokens');
+const authFile = path.join(authFolder, 'auth_info.json');
 
-function initWhatsApp() {
+if (!fs.existsSync(authFolder)) {
+  fs.mkdirSync(authFolder);
+}
+
+const { state, saveState } = useSingleFileAuthState(authFile);
+
+let sock = null;
+
+async function initWhatsApp() {
   return new Promise((resolve, reject) => {
-    venom
-      .create(
-        'shadowcast-session',
-        (base64Qrimg, asciiQR, attempts, urlCode) => {
-          console.log('🟡 Scan this QR to login to WhatsApp:');
-          console.log(asciiQR);
-        },
-        (statusSession, session) => {
-          console.log('📡 Status:', statusSession);
-        },
-        {
-          headless: true, // ✅ Required for deployment
-          devtools: false,
-          useChrome: false, // ✅ Force bundled Chromium (important)
-          debug: false,
-          logQR: true,
-          browserArgs: ['--no-sandbox', '--disable-setuid-sandbox'], // ✅ Safe for Railway
-        }
-      )
-      .then((_client) => {
-        client = _client;
-        console.log('✅ WhatsApp client initialized');
-        resolve(client);
-      })
-      .catch((err) => {
-        console.error('❌ Error initializing WhatsApp:', err);
-        reject(err);
+    try {
+      sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true, // auto print QR if login needed
       });
+
+      sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          console.log('🟡 Scan this QR code to connect WhatsApp:');
+          qrcode.generate(qr, { small: true });
+        }
+
+        if (connection === 'open') {
+          console.log('✅ WhatsApp connection established');
+          resolve(sock);
+        }
+
+        if (connection === 'close') {
+          const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+          console.log('❌ Connection closed. Reconnect?', shouldReconnect);
+
+          if (shouldReconnect) {
+            initWhatsApp(); // try reconnecting
+          } else {
+            reject('User logged out from WhatsApp');
+          }
+        }
+      });
+
+      sock.ev.on('creds.update', saveState);
+    } catch (error) {
+      console.error('❌ Error in WhatsApp initialization:', error);
+      reject(error);
+    }
   });
 }
 
 function getClient() {
-  return client;
+  return sock;
 }
 
 module.exports = { initWhatsApp, getClient };
